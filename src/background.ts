@@ -1,36 +1,77 @@
-chrome.tabs.onActivated.addListener(async ({ tabId }) => {
-  const activeTab = await chrome.tabs.get(tabId)
+// Debounce function with proper TypeScript typing
+function debounce<T extends (...args: any[]) => void>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: number | undefined
+  return function executedFunction(...args: Parameters<T>) {
+    const later = () => {
+      clearTimeout(timeout)
+      func(...args)
+    }
+    clearTimeout(timeout)
+    timeout = setTimeout(later, wait) as unknown as number
+  }
+}
 
-  async function collapseGroups() {
-    try {
-      const windowGroups = await chrome.tabGroups.query({
-        windowId: activeTab.windowId
+async function updateGroups() {
+  try {
+    // Get all chrome windows
+    const windows = await chrome.windows.getAll()
+
+    // Handle each window separately
+    for (const window of windows) {
+      // Get active tab in this window
+      const [activeTabInWindow] = await chrome.tabs.query({
+        active: true,
+        windowId: window.id
       })
 
-      const groupsToCollapse = windowGroups.filter(
-        group => group.id !== activeTab.groupId
-      )
+      // Get all groups in this window
+      const windowGroups = await chrome.tabGroups.query({
+        windowId: window.id
+      })
 
-      const collapsePromises = groupsToCollapse.map(group =>
+      // Update all groups: collapse if not containing active tab, expand if containing active tab
+      const updatePromises = windowGroups.map(group =>
         chrome.tabGroups.update(group.id, {
-          collapsed: true
+          collapsed: group.id !== activeTabInWindow?.groupId
         })
       )
 
-      await Promise.all(collapsePromises)
-    } catch (error) {
-      if (
-        error ==
-        'Error: Tabs cannot be edited right now (user may be dragging a tab).'
-      ) {
-        setTimeout(collapseGroups, 50)
-      } else {
-        console.error(error)
-      }
+      await Promise.all(updatePromises)
+    }
+  } catch (error) {
+    if (
+      error ==
+      'Error: Tabs cannot be edited right now (user may be dragging a tab).'
+    ) {
+      setTimeout(updateGroups, 50)
+    } else {
+      console.error(error)
     }
   }
+}
 
-  collapseGroups()
+// Create a debounced version of updateGroups
+const debouncedUpdateGroups = debounce(updateGroups, 100)
+
+// Listen for tab activation
+chrome.tabs.onActivated.addListener(() => {
+  debouncedUpdateGroups()
+})
+
+// Listen for tab group updates
+chrome.tabGroups.onUpdated.addListener(() => {
+  debouncedUpdateGroups()
+})
+
+// Listen for tab updates (URL changes, etc.)
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  // Only trigger on complete to avoid multiple updates during loading
+  if (changeInfo.status === 'complete') {
+    debouncedUpdateGroups()
+  }
 })
 
 // Reload the runtime on update to avoid sticking to outdated behavior in existing tabs
