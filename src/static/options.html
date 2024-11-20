@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Auto Collapse Tab Groups Options</title>
+    <style>
+      body {
+        padding: 20px;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      .option {
+        margin-bottom: 15px;
+      }
+      label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      select {
+        padding: 5px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Auto Collapse Tab Groups Options</h1>
+
+    <div class="option">
+      <label>
+        <input type="checkbox" id="ignoreUngroupedTabs" />
+        Don't collapse groups when active tab is ungrouped
+      </label>
+    </div>
+
+    <div class="option">
+      <label>
+        Single tab groups behavior:
+        <select id="preserveSingleTabGroups">
+          <option value="off">Collapse with other groups</option>
+          <option value="keep-current">Keep current collapse state</option>
+          <option value="always-expanded">Always keep expanded</option>
+        </select>
+      </label>
+    </div>
+
+    <script src="options.js"></script>
+  </body>
+</html>

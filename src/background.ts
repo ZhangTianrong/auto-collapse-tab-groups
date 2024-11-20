@@ -1,3 +1,33 @@
+interface ExtensionOptions {
+  ignoreUngroupedTabs: boolean
+  preserveSingleTabGroups: 'off' | 'keep-current' | 'always-expanded'
+}
+
+// Default options
+let options: ExtensionOptions = {
+  ignoreUngroupedTabs: true,
+  preserveSingleTabGroups: 'keep-current'
+}
+
+// Load options from storage
+async function loadOptions(): Promise<void> {
+  const result = await chrome.storage.sync.get({
+    ignoreUngroupedTabs: true,
+    preserveSingleTabGroups: 'keep-current'
+  })
+  options = result as ExtensionOptions
+}
+
+// Listen for options changes
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'optionsUpdated') {
+    loadOptions()
+  }
+})
+
+// Initialize options
+loadOptions()
+
 // Debounce function with proper TypeScript typing
 function debounce<T extends (...args: any[]) => void>(
   func: T,
@@ -27,19 +57,56 @@ async function updateGroups() {
         windowId: window.id
       })
 
+      // If active tab is not in a group (groupId === -1) and ignoreUngroupedTabs is enabled,
+      // skip processing tab groups in this window entirely
+      if (options.ignoreUngroupedTabs && activeTabInWindow?.groupId === -1) {
+        continue
+      }
+
       // Get all groups in this window
       const windowGroups = await chrome.tabGroups.query({
         windowId: window.id
       })
 
-      // Update all groups: collapse if not containing active tab, expand if containing active tab
-      const updatePromises = windowGroups.map(group =>
-        chrome.tabGroups.update(group.id, {
-          collapsed: group.id !== activeTabInWindow?.groupId
-        })
-      )
+      // Get all tabs in this window to check group sizes
+      const windowTabs = await chrome.tabs.query({ windowId: window.id })
 
-      await Promise.all(updatePromises)
+      // Create an array of group updates
+      const updatePromises = windowGroups.map(group => {
+        // Count tabs in this group
+        const tabsInGroup = windowTabs.filter(tab => tab.groupId === group.id).length
+
+        // Handle single-tab groups based on the option
+        if (tabsInGroup === 1) {
+          switch (options.preserveSingleTabGroups) {
+            case 'off':
+              // Treat like any other group
+              break
+            case 'keep-current':
+              // Skip updating this group
+              return null
+            case 'always-expanded':
+              // Always ensure the group is expanded
+              if (group.collapsed) {
+                return chrome.tabGroups.update(group.id, { collapsed: false })
+              }
+              return null
+          }
+        }
+
+        // For multi-tab groups or when preserveSingleTabGroups is 'off'
+        const shouldBeCollapsed = group.id !== activeTabInWindow?.groupId
+
+        // Only update if the collapse state needs to change
+        if (group.collapsed !== shouldBeCollapsed) {
+          return chrome.tabGroups.update(group.id, { collapsed: shouldBeCollapsed })
+        }
+
+        return null
+      })
+
+      // Execute all non-null updates
+      await Promise.all(updatePromises.filter(Boolean))
     }
   } catch (error) {
     if (
